@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
+import math
 from pathlib import Path
 
 import pytest
 
-from src.data_workbench.pipeline import AnalyticsWorkbench, pearson_correlation
+from src.data_workbench.pipeline import AnalyticsWorkbench, main, pearson_correlation
 
 
 def test_csv_ingestion_pandas_summary_and_chart_export(
@@ -39,6 +41,7 @@ def test_csv_ingestion_pandas_summary_and_chart_export(
         checkout = next(s for s in summaries if s.service == "checkout-api")
         assert checkout.sample_count == 6
         assert checkout.median_latency_ms == 25.25
+        assert checkout.p99_latency_ms >= checkout.p95_latency_ms
         assert checkout.total_requests_per_sec == 2760
 
         anomalies = wb.detect_latency_anomalies("checkout-api", z_threshold=2.0)
@@ -68,3 +71,30 @@ def test_ingest_validates_file_and_required_columns(tmp_path: pytest.TempPathFac
             raise AssertionError("Expected ValueError for missing columns")
         except ValueError as exc:
             assert "Missing required CSV columns" in str(exc)
+
+
+def test_edge_cases_and_cli_execution(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    flat_csv = tmp_path / "flat.csv"
+    flat_csv.write_text(
+        "record_id,service,region,latency_ms,error_rate_pct,requests_per_sec\n"
+        "f1,auth-api,eu-west-1,20.0,0.0,100\n"
+        "f2,auth-api,eu-west-2,20.0,0.0,100\n",
+        encoding="utf-8",
+    )
+
+    chart_out = tmp_path / "flat_chart.svg"
+    assert main([str(flat_csv), "--chart", str(chart_out)]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["anomalies"]["auth-api"] == []
+    assert chart_out.exists()
+
+    with AnalyticsWorkbench(":memory:") as wb:
+        with pytest.raises(ValueError, match="empty dataset"):
+            wb.export_latency_chart(tmp_path / "empty.svg")
+        with pytest.raises(ValueError, match="z_threshold must be positive"):
+            wb.detect_latency_anomalies("auth-api", z_threshold=0.0)
+
+    with pytest.raises(ValueError, match="finite numbers"):
+        pearson_correlation([1.0, math.nan], [2.0, 3.0])

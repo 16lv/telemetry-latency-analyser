@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import csv
+import json
 import math
 import sqlite3
 import statistics
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Self
 
@@ -33,6 +36,7 @@ class ServiceStatistics:
     mean_latency_ms: float
     median_latency_ms: float
     p95_latency_ms: float
+    p99_latency_ms: float
     std_dev_latency_ms: float
     mean_error_rate_pct: float
     total_requests_per_sec: int
@@ -164,6 +168,7 @@ class AnalyticsWorkbench:
                     mean_latency_ms=round(float(np.mean(lat)), 2),
                     median_latency_ms=round(float(np.median(lat)), 2),
                     p95_latency_ms=round(float(np.percentile(lat, 95)), 2),
+                    p99_latency_ms=round(float(np.percentile(lat, 99)), 2),
                     std_dev_latency_ms=round(std_dev, 2),
                     mean_error_rate_pct=round(float(np.mean(err)), 3),
                     total_requests_per_sec=rps,
@@ -214,7 +219,9 @@ class AnalyticsWorkbench:
         return anomalies
 
     def export_latency_chart(self, output_path: Path) -> Path:
-        # Render p50 vs p95 bar chart using the non-interactive Agg backend
+        target = Path(output_path)
+        if target.exists() and target.is_dir():
+            raise ValueError(f"output_path must be a file path, not a directory: {target}")
         summaries = self.summarize_by_service()
         if not summaries:
             raise ValueError("Cannot generate chart from empty dataset")
@@ -241,11 +248,11 @@ class AnalyticsWorkbench:
             spine.set_color("#262b35")
         ax.legend(facecolor="#13161b", edgecolor="#262b35", labelcolor="#e5e7eb")
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
         fig.tight_layout()
-        fig.savefig(output_path, facecolor=fig.get_facecolor())
+        fig.savefig(target, facecolor=fig.get_facecolor())
         plt.close(fig)
-        return output_path
+        return target
 
 
 def pearson_correlation(xs: list[float], ys: list[float]) -> float:
@@ -262,3 +269,38 @@ def pearson_correlation(xs: list[float], ys: list[float]) -> float:
     if math.isnan(corr):
         return 0.0
     return round(corr, 4)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Analyse service latency CSV logs and optionally export an SVG comparison chart."
+    )
+    parser.add_argument("csv_path", type=Path, help="Path to telemetry CSV log")
+    parser.add_argument("--chart", type=Path, default=None, help="Optional output SVG/PNG chart path")
+    parser.add_argument("--z-threshold", type=float, default=2.0, help="Anomaly z-score threshold")
+    args = parser.parse_args(argv)
+
+    with AnalyticsWorkbench(":memory:") as wb:
+        counts = wb.ingest_csv(args.csv_path)
+        summaries = wb.summarize_by_service()
+        anomalies = {
+            s.service: wb.detect_latency_anomalies(s.service, z_threshold=args.z_threshold)
+            for s in summaries
+        }
+        if args.chart is not None and summaries:
+            wb.export_latency_chart(args.chart)
+        print(
+            json.dumps(
+                {
+                    "ingestion": counts,
+                    "services": [asdict(s) for s in summaries],
+                    "anomalies": anomalies,
+                },
+                indent=2,
+            )
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
