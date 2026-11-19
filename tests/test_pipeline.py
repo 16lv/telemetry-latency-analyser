@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.data_workbench.pipeline import AnalyticsWorkbench, main, pearson_correlation
+from data_workbench.pipeline import AnalyticsWorkbench, main, pearson_correlation
 
 
 def test_csv_ingestion_pandas_summary_and_chart_export(

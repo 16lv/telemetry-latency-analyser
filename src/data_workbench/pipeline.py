@@ -43,8 +43,6 @@ class ServiceStatistics:
 
 
 class AnalyticsWorkbench:
-    # Loads CSV logs into SQLite + pandas, filters bad rows, and calculates latency stats.
-
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self._conn = sqlite3.connect(str(db_path))
         self._conn.row_factory = sqlite3.Row
@@ -231,28 +229,30 @@ class AnalyticsWorkbench:
         p95s = [s.p95_latency_ms for s in summaries]
 
         fig, ax = plt.subplots(figsize=(8, 4.2), dpi=140)
-        fig.patch.set_facecolor("#0d0f12")
-        ax.set_facecolor("#13161b")
+        try:
+            fig.patch.set_facecolor("#0d0f12")
+            ax.set_facecolor("#13161b")
 
-        x = np.arange(len(services))
-        width = 0.36
-        ax.bar(x - width / 2, medians, width, label="Median (p50) ms", color="#38bdf8")
-        ax.bar(x + width / 2, p95s, width, label="Tail (p95) ms", color="#f59e0b")
+            x = np.arange(len(services))
+            width = 0.36
+            ax.bar(x - width / 2, medians, width, label="Median (p50) ms", color="#38bdf8")
+            ax.bar(x + width / 2, p95s, width, label="Tail (p95) ms", color="#f59e0b")
 
-        ax.set_title("Service Response Latency: Median vs 95th Percentile (ms)", color="#e5e7eb", pad=12)
-        ax.set_ylabel("Latency (ms)", color="#9ca3af")
-        ax.set_xticks(x)
-        ax.set_xticklabels(services, color="#e5e7eb")
-        ax.tick_params(axis="y", colors="#9ca3af")
-        for spine in ax.spines.values():
-            spine.set_color("#262b35")
-        ax.legend(facecolor="#13161b", edgecolor="#262b35", labelcolor="#e5e7eb")
+            ax.set_title("Service Response Latency: Median vs 95th Percentile (ms)", color="#e5e7eb", pad=12)
+            ax.set_ylabel("Latency (ms)", color="#9ca3af")
+            ax.set_xticks(x)
+            ax.set_xticklabels(services, color="#e5e7eb")
+            ax.tick_params(axis="y", colors="#9ca3af")
+            for spine in ax.spines.values():
+                spine.set_color("#262b35")
+            ax.legend(facecolor="#13161b", edgecolor="#262b35", labelcolor="#e5e7eb")
 
-        target.parent.mkdir(parents=True, exist_ok=True)
-        fig.tight_layout()
-        fig.savefig(target, facecolor=fig.get_facecolor())
-        plt.close(fig)
-        return target
+            target.parent.mkdir(parents=True, exist_ok=True)
+            fig.tight_layout()
+            fig.savefig(target, facecolor=fig.get_facecolor())
+            return target
+        finally:
+            plt.close(fig)
 
 
 def pearson_correlation(xs: list[float], ys: list[float]) -> float:
